@@ -1,50 +1,71 @@
 import pandas as pd
-import numpy as np
-import os
-import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report
 
-# Define paths
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TRAIN_PATH = os.path.join(BASE_DIR, "data/raw/train.csv")
-TEST_PATH = os.path.join(BASE_DIR, "data/raw/test.csv")
-OUTPUT_PATH = os.path.join(BASE_DIR, "data/processed/test_predictions.csv")
+# Load the training data
+train_df = pd.read_csv('data/processed/train_clean.csv')
 
-def train_and_predict():
-    """Trains a model using train.csv and generates predictions for test.csv."""
-    
-    # Load datasets
-    train_df = pd.read_csv(TRAIN_PATH)
-    test_df = pd.read_csv(TEST_PATH)
+# Check for NaN values in the 'clean_text' column and drop rows with NaN
+missing_train = train_df[train_df['clean_text'].isna()]
 
-    # Ensure required columns exist
-    if "id" not in train_df.columns or "content" not in train_df.columns or "target" not in train_df.columns:
-        raise ValueError("Train data must contain 'id', 'content', and 'target' columns.")
-    if "id" not in test_df.columns or "content" not in test_df.columns:
-        raise ValueError("Test data must contain 'id' and 'content' columns.")
+if not missing_train.empty:
+    print("Missing entries in training data:")
+    print(missing_train[['id', 'clean_text']])
 
-    # Handle missing values
-    train_df["content"] = train_df["content"].fillna("")
-    test_df["content"] = test_df["content"].fillna("")
+train_df = train_df.dropna(subset=['clean_text'])
 
-    # Convert text into TF-IDF features
-    vectorizer = TfidfVectorizer(max_features=5000)  # Use top 5000 features
-    X_train = vectorizer.fit_transform(train_df["content"])
-    y_train = train_df["target"]
+# Ensure 'clean_text' and 'target' columns exist in the training data
+X_train = train_df['clean_text']
+y_train = train_df['target']
 
-    # Train a Logistic Regression model
-    model = LogisticRegression(max_iter=1000)
-    model.fit(X_train, y_train)
+# Initialize the TfidfVectorizer and Logistic Regression Model
+vectorizer = TfidfVectorizer(stop_words='english', max_features=5000)
+model = LogisticRegression(C=10, solver='saga', max_iter=1000)
 
-    # Transform test data and make predictions
-    X_test = vectorizer.transform(test_df["content"])
-    predictions = model.predict(X_test)
+# Transform the training data with the vectorizer
+X_train_tfidf = vectorizer.fit_transform(X_train)
 
-    # Save predictions in required format
-    output_df = pd.DataFrame({"id": test_df["id"], "target": predictions})
-    output_df.to_csv(OUTPUT_PATH, index=False)
-    print(f"Predictions saved to {OUTPUT_PATH}")
+# Train the model
+model.fit(X_train_tfidf, y_train)
 
-if __name__ == "__main__":
-    train_and_predict()
+# Evaluate the model on training data
+train_predictions = model.predict(X_train_tfidf)
+train_accuracy = accuracy_score(y_train, train_predictions)
+
+# Print Training Accuracy and Classification Report
+print(f'Training Accuracy: {train_accuracy:.2f}')
+print('Classification Report on Train Set:')
+print(classification_report(y_train, train_predictions))
+
+# Load the test data (the cleaned version)
+test_df = pd.read_csv('data/processed/test_clean.csv')
+
+# Check for NaN values in the 'clean_text' column and drop rows with NaN in the test set
+missing_test = test_df[test_df['clean_text'].isna()]
+
+if not missing_test.empty:
+    print("Missing entries in test data:")
+    print(missing_test[['id', 'clean_text']])
+
+test_df = test_df.dropna(subset=['clean_text'])
+
+# Ensure 'clean_text' column exists in the test data
+X_test = test_df['clean_text']
+
+# Transform the test data with the same vectorizer
+X_test_tfidf = vectorizer.transform(X_test)
+
+# Make predictions on the test set
+test_predictions = model.predict(X_test_tfidf)
+
+# Create a DataFrame for the test predictions
+test_results = pd.DataFrame({
+    'id': test_df['id'],  # Assuming 'id' is the identifier column in the test set
+    'target': test_predictions
+})
+
+# Save the updated predictions to the existing CSV file in the processed data folder
+test_results.to_csv('data/processed/test_predictions.csv', index=False)
+
+print('Test predictions updated in data/processed/test_predictions.csv')
